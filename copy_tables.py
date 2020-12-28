@@ -5,6 +5,8 @@ from copy import copy
 from utilities import query_yes_no
 from utilities import _find_prop_schema
 from utilities import _add_new_multi_select_value
+from utilities import is_list_of_strings
+from utilities import _build_selects
 from termcolor import colored, cprint
 import getpass
 from tqdm import tqdm
@@ -29,6 +31,7 @@ url_from = input("Enter the link of the table you want to copy from \n")
 table_from = client.get_collection_view(url_from)
 
 url_to = input("Enter the link of the table you want to copy to \n")
+
 table_to = client.get_collection_view(url_to)
 
 if wants_to_check_duplicates:
@@ -50,21 +53,19 @@ if wants_to_check_duplicates:
         )
 
 
-
 def _copy_properties(old, new):
     for prop in dir(old):
         try:
             if not prop.startswith('_'):
                 attr = getattr(old, prop)
-                schema = new.collection.get("schema")
-                prop_schema_1 = _find_prop_schema(schema,prop)
-                prop_schema_2 = _find_prop_schema(schema,prop.capitalize())
-                if prop_schema_1 and (prop_schema_1["type"] == "multi_select" or prop_schema_1["type"] == "select") or prop_schema_2 and (prop_schema_2["type"] == "multi_select" or prop_schema_2["type"] == "select"):
-                    _add_new_multi_select_value(new.collection, prop, attr)
-                if attr != '' and not callable(attr):
+                if not callable(attr) and (isinstance(attr,list) and is_list_of_strings(attr)):
+                    exec('new.'+prop+'=attr')
+                elif attr != '' and not callable(attr):
                     setattr(new, prop, copy(attr))
+
         except AttributeError:
             pass
+
     if bool(old.children):
         for old_child in old.children:
             new_child = new.children.add_new(old_child.__class__)
@@ -72,8 +73,8 @@ def _copy_properties(old, new):
 
 
 rows_table_from = table_from.build_query().execute()
-iterator = 1
 cprint("STARTING TO COPY!", 'white','on_grey', attrs=['bold','blink'])
+
 
 for old_row in tqdm(rows_table_from):
     if wants_to_check_duplicates:
@@ -81,10 +82,11 @@ for old_row in tqdm(rows_table_from):
         value_exists_already = any(getattr(x,property_duplicates_to) == getattr(old_row,property_duplicates_from) for x in table_query)
         if not value_exists_already:
             new_row = table_to.collection.add_row(bool(False))
+            _build_selects(new_row,old_row)
             _copy_properties(old_row, new_row)
-            iterator +=1
     else:
         new_row = table_to.collection.add_row(bool(False))
+        _build_selects(new_row,old_row)
         _copy_properties(old_row, new_row)
     if wants_to_remove_old_rows:
         old_row.remove()
